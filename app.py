@@ -1,11 +1,11 @@
 """
-ASL Translator - Deployable Web Version
-Uses client-side camera with WebSocket communication
+ASL Translator - Complete Deployable Version
+Live Camera + Video Test Modes
 """
 import os
 os.environ['GLOG_minloglevel'] = '3'
 
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_from_directory
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 import cv2
@@ -24,6 +24,15 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 MODEL_PATH = "ArabSignModel.pth"
 LABELS_CSV = "01_test.csv"
 
+# Test video paths (you'll need to upload these or remove this feature)
+TEST_VIDEOS = {
+    'test1': 'test_videos/test1.mp4',
+    'test2': 'test_videos/test2.mp4',
+    'test3': 'test_videos/test3.mp4',
+    'test4': 'test_videos/test4.mp4',
+    'test5': 'test_videos/test5.mp4',
+}
+
 SEQUENCE_LENGTH = 80
 CONFIDENCE_THRESHOLD = 0.30
 PAUSE_THRESHOLD = 15
@@ -31,7 +40,8 @@ MIN_SIGN_FRAMES = 20
 
 # ==================== GLOBAL STATE ====================
 sign_model = None
-user_sessions = {}  # Store each user's detection state
+user_sessions = {}
+mp_holistic = mp.solutions.holistic
 
 def load_model():
     global sign_model
@@ -40,11 +50,7 @@ def load_model():
         sign_model = SignLanguageModel(MODEL_PATH, LABELS_CSV)
     return sign_model
 
-# Initialize MediaPipe once
-mp_holistic = mp.solutions.holistic
-
 class UserSession:
-    """Store detection state for each connected user"""
     def __init__(self):
         self.detected_words = []
         self.keypoints_buffer = []
@@ -55,6 +61,7 @@ class UserSession:
             model_complexity=0
         )
         self.show_skeleton = True
+        self.mode = 'live'  # 'live' or 'video'
     
     def cleanup(self):
         if self.holistic:
@@ -66,7 +73,7 @@ def handle_connect():
     session_id = request.sid
     user_sessions[session_id] = UserSession()
     print(f"✅ User connected: {session_id}")
-    emit('connected', {'status': 'success', 'message': 'Connected to server'})
+    emit('connected', {'status': 'success'})
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -88,8 +95,8 @@ def handle_frame(data):
     model = load_model()
     
     try:
-        # Decode frame from base64
-        frame_data = data['frame'].split(',')[1]  # Remove data:image/jpeg;base64,
+        # Decode frame
+        frame_data = data['frame'].split(',')[1]
         frame_bytes = base64.b64decode(frame_data)
         frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
         frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
@@ -124,7 +131,6 @@ def handle_frame(data):
         if is_person_idle:
             session.idle_counter += 1
             
-            # Trigger prediction
             if session.idle_counter >= PAUSE_THRESHOLD and len(session.keypoints_buffer) >= MIN_SIGN_FRAMES:
                 pose_seq = [kp[0] for kp in session.keypoints_buffer]
                 lh_seq = [kp[1] for kp in session.keypoints_buffer]
@@ -153,7 +159,6 @@ def handle_frame(data):
             session.idle_counter = 0
             session.keypoints_buffer.append((pose, lh, rh))
         
-        # Send response
         emit('frame_result', response)
         
     except Exception as e:
@@ -162,14 +167,12 @@ def handle_frame(data):
 
 @socketio.on('get_words')
 def handle_get_words():
-    """Return detected words for current user"""
     session_id = request.sid
     if session_id in user_sessions:
         emit('words_update', {'words': user_sessions[session_id].detected_words})
 
 @socketio.on('clear_words')
 def handle_clear_words():
-    """Clear detected words for current user"""
     session_id = request.sid
     if session_id in user_sessions:
         user_sessions[session_id].detected_words = []
@@ -177,7 +180,6 @@ def handle_clear_words():
 
 @socketio.on('toggle_skeleton')
 def handle_toggle_skeleton():
-    """Toggle skeleton visibility"""
     session_id = request.sid
     if session_id in user_sessions:
         user_sessions[session_id].show_skeleton = not user_sessions[session_id].show_skeleton
@@ -190,20 +192,18 @@ def index():
 
 @app.route('/health')
 def health():
-    """Health check for deployment"""
     return {'status': 'healthy', 'model_loaded': sign_model is not None}
 
 if __name__ == '__main__':
     print("\n" + "="*70)
-    print("🚀 ASL TRANSLATOR - DEPLOYABLE WEB VERSION")
+    print("🚀 ASL TRANSLATOR - PRODUCTION")
     print("="*70)
     print(f"📦 Model: {MODEL_PATH}")
     print(f"📋 Labels: {LABELS_CSV}")
-    print(f"🌐 Server: http://0.0.0.0:5000")
     print("="*70 + "\n")
     
-    # Load model at startup
     load_model()
     
-    # Use gevent for production
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    # Use PORT environment variable (required by Render)
+    port = int(os.environ.get('PORT', 10000))
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)
