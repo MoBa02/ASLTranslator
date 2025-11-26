@@ -1,5 +1,5 @@
 """
-ASL Translator - Fixed Production Version
+ASL Translator - DEBUG VERSION
 """
 import os
 os.environ['GLOG_minloglevel'] = '3'
@@ -23,7 +23,7 @@ MODEL_PATH = "ArabSignModel.pth"
 LABELS_CSV = "01_test.csv"
 
 SEQUENCE_LENGTH = 80
-CONFIDENCE_THRESHOLD = 0.30
+CONFIDENCE_THRESHOLD = 0.10  # LOWERED for testing
 PAUSE_THRESHOLD = 15
 MIN_SIGN_FRAMES = 20
 
@@ -32,7 +32,6 @@ sign_model = None
 user_sessions = {}
 mp_holistic = mp.solutions.holistic
 
-# PRE-INITIALIZE MediaPipe at startup (FIX for network timeout)
 print("🔄 Pre-loading MediaPipe models...")
 try:
     _global_holistic = mp_holistic.Holistic(
@@ -49,7 +48,13 @@ def load_model():
     global sign_model
     if sign_model is None:
         print("🔄 Loading prediction model...")
-        sign_model = SignLanguageModel(MODEL_PATH, LABELS_CSV)
+        try:
+            sign_model = SignLanguageModel(MODEL_PATH, LABELS_CSV)
+            print(f"✅ Model loaded successfully!")
+        except Exception as e:
+            print(f"❌ Model load FAILED: {e}")
+            import traceback
+            traceback.print_exc()
     return sign_model
 
 class UserSession:
@@ -57,13 +62,13 @@ class UserSession:
         self.detected_words = []
         self.keypoints_buffer = []
         self.idle_counter = 0
-        # Initialize holistic AFTER models are cached
         self.holistic = mp_holistic.Holistic(
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5,
             model_complexity=0
         )
         self.show_skeleton = True
+        self.frame_count = 0  # DEBUG
     
     def cleanup(self):
         if self.holistic:
@@ -74,7 +79,7 @@ class UserSession:
 
 # ==================== SOCKETIO EVENTS ====================
 @socketio.on('connect')
-def handle_connect(auth=None):  # FIX: Added auth parameter
+def handle_connect(auth=None):
     session_id = request.sid
     try:
         user_sessions[session_id] = UserSession()
@@ -94,15 +99,26 @@ def handle_disconnect():
 
 @socketio.on('process_frame')
 def handle_frame(data):
-    """Process frame from client's camera"""
+    """Process frame from client's camera - DEBUG VERSION"""
     session_id = request.sid
     
     if session_id not in user_sessions:
+        print(f"❌ Session {session_id} not found!")
         emit('error', {'message': 'Session not found'})
         return
     
     session = user_sessions[session_id]
+    session.frame_count += 1
+    
+    # Log every 30 frames
+    if session.frame_count % 30 == 0:
+        print(f"📊 Frame {session.frame_count} | Buffer: {len(session.keypoints_buffer)} | Idle: {session.idle_counter}")
+    
     model = load_model()
+    
+    if model is None:
+        print("❌ Model is None!")
+        return
     
     try:
         # Decode frame
@@ -112,6 +128,7 @@ def handle_frame(data):
         frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
         
         if frame is None:
+            print("❌ Frame decode failed!")
             return
         
         # MediaPipe processing
@@ -120,11 +137,26 @@ def handle_frame(data):
         results = session.holistic.process(image_rgb)
         image_rgb.flags.writeable = True
         
+        # DEBUG: Check if landmarks detected
+        has_pose = results.pose_landmarks is not None
+        has_lh = results.left_hand_landmarks is not None
+        has_rh = results.right_hand_landmarks is not None
+        
+        if session.frame_count % 30 == 0:
+            print(f"🔍 Landmarks: Pose={has_pose}, LH={has_lh}, RH={has_rh}")
+        
         # Extract keypoints
         keypoints = extract_keypoints(results)
         pose = keypoints[:99]
         lh = keypoints[99:162]
         rh = keypoints[162:225]
+        
+        # DEBUG: Check keypoints
+        if session.frame_count % 30 == 0:
+            pose_sum = np.sum(np.abs(pose))
+            lh_sum = np.sum(np.abs(lh))
+            rh_sum = np.sum(np.abs(rh))
+            print(f"🔢 Keypoint sums: Pose={pose_sum:.2f}, LH={lh_sum:.2f}, RH={rh_sum:.2f}")
         
         # Idle detection
         is_person_idle = is_idle(results)
@@ -142,29 +174,42 @@ def handle_frame(data):
             session.idle_counter += 1
             
             if session.idle_counter >= PAUSE_THRESHOLD and len(session.keypoints_buffer) >= MIN_SIGN_FRAMES:
+                print(f"\n🎯 TRIGGERING PREDICTION!")
+                print(f"   Buffer size: {len(session.keypoints_buffer)}")
+                print(f"   Idle counter: {session.idle_counter}")
+                
                 pose_seq = [kp[0] for kp in session.keypoints_buffer]
                 lh_seq = [kp[1] for kp in session.keypoints_buffer]
                 rh_seq = [kp[2] for kp in session.keypoints_buffer]
                 
+                print(f"   Sequences: pose={len(pose_seq)}, lh={len(lh_seq)}, rh={len(rh_seq)}")
+                
                 try:
                     word, confidence = model.predict(pose_seq, lh_seq, rh_seq, SEQUENCE_LENGTH)
+                    print(f"   🔮 Prediction: '{word}' (confidence: {confidence:.4f})")
+                    print(f"   Threshold: {CONFIDENCE_THRESHOLD}")
                     
                     if confidence > CONFIDENCE_THRESHOLD:
                         if not session.detected_words or session.detected_words[-1] != word:
                             session.detected_words.append(word)
-                            print(f"✅ {session_id}: {word} ({confidence:.2f})")
+                            print(f"   ✅ ACCEPTED: {word} ({confidence:.2f})")
                         
                         response['detected_word'] = word
                         response['confidence'] = confidence
                         response['flash'] = 'green'
                         response['all_words'] = session.detected_words
                     else:
+                        print(f"   ❌ REJECTED: confidence {confidence:.4f} < {CONFIDENCE_THRESHOLD}")
                         response['flash'] = 'red'
+                        
                 except Exception as e:
-                    print(f"⚠️ Prediction error: {e}")
+                    print(f"   ❌ PREDICTION ERROR: {e}")
+                    import traceback
+                    traceback.print_exc()
                 
                 session.keypoints_buffer = []
                 session.idle_counter = 0
+                print("   Buffer cleared\n")
         else:
             session.idle_counter = 0
             session.keypoints_buffer.append((pose, lh, rh))
@@ -173,6 +218,8 @@ def handle_frame(data):
         
     except Exception as e:
         print(f"❌ Frame processing error: {e}")
+        import traceback
+        traceback.print_exc()
         emit('error', {'message': str(e)})
 
 @socketio.on('get_words')
@@ -185,7 +232,7 @@ def handle_get_words():
 def handle_clear_words():
     session_id = request.sid
     if session_id in user_sessions:
-        user_sessions[session_id].detected_words = []
+        session.detected_words = []
         emit('words_cleared', {'status': 'success'})
 
 @socketio.on('toggle_skeleton')
@@ -206,15 +253,14 @@ def health():
 
 if __name__ == '__main__':
     print("\n" + "="*70)
-    print("🚀 ASL TRANSLATOR - PRODUCTION")
+    print("🚀 ASL TRANSLATOR - DEBUG MODE")
     print("="*70)
     print(f"📦 Model: {MODEL_PATH}")
     print(f"📋 Labels: {LABELS_CSV}")
+    print(f"⚠️  Confidence threshold: {CONFIDENCE_THRESHOLD} (LOWERED FOR TESTING)")
     print("="*70 + "\n")
     
-    # Load model at startup
     load_model()
     
-    # Use PORT environment variable for Render
     port = int(os.environ.get('PORT', 10000))
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
