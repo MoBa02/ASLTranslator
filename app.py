@@ -1,11 +1,10 @@
 """
-ASL Translator - Complete Deployable Version
-Live Camera + Video Test Modes
+ASL Translator - Fixed Production Version
 """
 import os
 os.environ['GLOG_minloglevel'] = '3'
 
-from flask import Flask, render_template, request, send_from_directory
+from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 import cv2
@@ -13,7 +12,6 @@ import mediapipe as mp
 import numpy as np
 import base64
 from inference import SignLanguageModel, extract_keypoints, is_idle
-import time
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
@@ -23,15 +21,6 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 # ==================== CONFIGURATION ====================
 MODEL_PATH = "ArabSignModel.pth"
 LABELS_CSV = "01_test.csv"
-
-# Test video paths (you'll need to upload these or remove this feature)
-TEST_VIDEOS = {
-    'test1': 'test_videos/test1.mp4',
-    'test2': 'test_videos/test2.mp4',
-    'test3': 'test_videos/test3.mp4',
-    'test4': 'test_videos/test4.mp4',
-    'test5': 'test_videos/test5.mp4',
-}
 
 SEQUENCE_LENGTH = 80
 CONFIDENCE_THRESHOLD = 0.30
@@ -43,10 +32,23 @@ sign_model = None
 user_sessions = {}
 mp_holistic = mp.solutions.holistic
 
+# PRE-INITIALIZE MediaPipe at startup (FIX for network timeout)
+print("🔄 Pre-loading MediaPipe models...")
+try:
+    _global_holistic = mp_holistic.Holistic(
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+        model_complexity=0
+    )
+    _global_holistic.close()
+    print("✅ MediaPipe models cached")
+except Exception as e:
+    print(f"⚠️ MediaPipe pre-load warning: {e}")
+
 def load_model():
     global sign_model
     if sign_model is None:
-        print("🔄 Loading model...")
+        print("🔄 Loading prediction model...")
         sign_model = SignLanguageModel(MODEL_PATH, LABELS_CSV)
     return sign_model
 
@@ -55,25 +57,32 @@ class UserSession:
         self.detected_words = []
         self.keypoints_buffer = []
         self.idle_counter = 0
+        # Initialize holistic AFTER models are cached
         self.holistic = mp_holistic.Holistic(
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5,
             model_complexity=0
         )
         self.show_skeleton = True
-        self.mode = 'live'  # 'live' or 'video'
     
     def cleanup(self):
         if self.holistic:
-            self.holistic.close()
+            try:
+                self.holistic.close()
+            except:
+                pass
 
 # ==================== SOCKETIO EVENTS ====================
 @socketio.on('connect')
-def handle_connect():
+def handle_connect(auth=None):  # FIX: Added auth parameter
     session_id = request.sid
-    user_sessions[session_id] = UserSession()
-    print(f"✅ User connected: {session_id}")
-    emit('connected', {'status': 'success'})
+    try:
+        user_sessions[session_id] = UserSession()
+        print(f"✅ User connected: {session_id}")
+        emit('connected', {'status': 'success'})
+    except Exception as e:
+        print(f"❌ Connection error: {e}")
+        emit('error', {'message': str(e)})
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -89,6 +98,7 @@ def handle_frame(data):
     session_id = request.sid
     
     if session_id not in user_sessions:
+        emit('error', {'message': 'Session not found'})
         return
     
     session = user_sessions[session_id]
@@ -202,8 +212,9 @@ if __name__ == '__main__':
     print(f"📋 Labels: {LABELS_CSV}")
     print("="*70 + "\n")
     
+    # Load model at startup
     load_model()
     
-    # Use PORT environment variable (required by Render)
+    # Use PORT environment variable for Render
     port = int(os.environ.get('PORT', 10000))
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
