@@ -3,21 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>مترجم لغة الإشارة العربية</title>
+    <title>مترجم لغة الإشارة العربية - نسخة الويب</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Cairo', sans-serif; }
-        .fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-        @keyframes fadeIn { 
-            from { opacity: 0; transform: translateY(-20px) scale(0.95); } 
-            to { opacity: 1; transform: translateY(0) scale(1); } 
-        }
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         .pulse-green { animation: pulseGreen 0.5s ease-out; }
-        @keyframes pulseGreen { 
-            0%, 100% { box-shadow: 0 0 0 0 rgba(0, 255, 0, 0.7); }
-            50% { box-shadow: 0 0 30px 15px rgba(0, 255, 0, 0); }
-        }
+        @keyframes pulseGreen { 0%, 100% { box-shadow: 0 0 0 0 rgba(0, 255, 0, 0.7); } 50% { box-shadow: 0 0 30px 15px rgba(0, 255, 0, 0); } }
+        video { transform: scaleX(-1); } /* Mirror effect */
+        canvas { display: none; }
     </style>
 </head>
 <body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white min-h-screen">
@@ -28,24 +25,15 @@
             <div class="flex items-center gap-3">
                 <div class="bg-gradient-to-br from-teal-400 to-cyan-500 p-3 rounded-xl">
                     <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
                     </svg>
                 </div>
                 <h1 class="text-2xl font-bold bg-gradient-to-r from-teal-400 to-cyan-400 bg-clip-text text-transparent">
-                    مترجم لغة الإشارة العربية
+                    مترجم لغة الإشارة - نسخة الويب
                 </h1>
             </div>
-            
-            <!-- Mode Toggle -->
-            <div class="bg-gray-700 p-1 rounded-xl flex gap-1">
-                <button onclick="switchMode('live')" id="btn-live" 
-                        class="px-6 py-2 rounded-lg font-semibold transition-all bg-teal-600 text-white">
-                    📹 مباشر
-                </button>
-                <button onclick="switchMode('video')" id="btn-video" 
-                        class="px-6 py-2 rounded-lg font-semibold transition-all text-gray-400 hover:text-white">
-                    🎬 فيديو تجريبي
-                </button>
+            <div id="connectionStatus" class="bg-gray-700 px-4 py-2 rounded-lg text-sm">
+                <span id="statusIcon">⚪</span> <span id="statusText">جاري الاتصال...</span>
             </div>
         </div>
     </header>
@@ -54,54 +42,46 @@
     <main class="container mx-auto p-6">
         <div class="grid lg:grid-cols-2 gap-6">
             
-            <!-- Video Feed Section -->
+            <!-- Video Section -->
             <div class="space-y-4">
                 <div class="bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-700">
                     <div class="relative aspect-video bg-black">
-                        <img id="videoFeed" 
-                             src="/video_feed" 
-                             class="w-full h-full object-contain"
-                             alt="Video Feed">
+                        <video id="webcam" autoplay playsinline class="w-full h-full object-contain"></video>
+                        anvas id="canvas"></canvas>
                         
-                        <!-- Camera Status Badge -->
+                        <!-- Status Badge -->
                         <div id="statusBadge" class="hidden absolute top-4 right-4 bg-red-600 px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2 animate-pulse shadow-xl">
                             <span class="w-3 h-3 bg-white rounded-full"></span>
-                            <span id="statusText">مباشر</span>
+                            <span>مباشر</span>
                         </div>
                         
-                        <!-- Toggle Skeleton Button (Inside Video) -->
-                        <button onclick="toggleSkeleton()" 
-                                class="absolute top-4 left-4 bg-gray-900/80 hover:bg-teal-600 text-white px-4 py-2 rounded-xl transition-all shadow-lg font-semibold">
-                            👁️ <span id="skeletonText">إخفاء الخطوط</span>
-                        </button>
+                        <!-- Idle/Signing Indicator -->
+                        <div id="stateIndicator" class="absolute top-4 left-4 bg-gray-900/80 px-4 py-2 rounded-xl text-lg font-bold shadow-lg">
+                            ...
+                        </div>
+                        
+                        <!-- Progress Circle -->
+                        <svg id="progressCircle" class="absolute bottom-4 right-4" width="50" height="50" style="display: none;">
+                            ircle cx="25" cy="25" r="20" fill="none" stroke="#333" stroke-width="4"/>
+                            ircle id="progressBar" cx="25" cy="25" r="20" fill="none" stroke="#00ffff" stroke-width="4" 
+                                    stroke-dasharray="126" stroke-dashoffset="126" transform="rotate(-90 25 25)"/>
+                        </svg>
+                        
+                        <!-- Flash Effect -->
+                        <div id="flashEffect" class="absolute inset-0 pointer-events-none" style="display: none;"></div>
                     </div>
                 </div>
                 
-                <!-- Live Mode Controls -->
-                <div id="liveControls" class="flex gap-3">
+                <!-- Controls -->
+                <div class="flex gap-3">
                     <button onclick="toggleCamera()" id="btnCamera" 
                             class="flex-1 bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-xl font-bold shadow-lg transition-all transform hover:scale-105">
                         <span id="cameraIcon">📹</span> <span id="cameraText">تشغيل الكاميرا</span>
                     </button>
                 </div>
                 
-                <!-- Video Mode Controls -->
-                <div id="videoControls" class="hidden space-y-3">
-                    <div class="grid grid-cols-5 gap-2">
-                        <button onclick="startTest('test1')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl font-bold transition">Test 1</button>
-                        <button onclick="startTest('test2')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl font-bold transition">Test 2</button>
-                        <button onclick="startTest('test3')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl font-bold transition">Test 3</button>
-                        <button onclick="startTest('test4')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl font-bold transition">Test 4</button>
-                        <button onclick="startTest('test5')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl font-bold transition">Test 5</button>
-                    </div>
-                    <button onclick="stopTest()" id="btnStopTest" 
-                            class="w-full bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-xl font-bold shadow-lg transition">
-                        ⏹️ إيقاف الفيديو
-                    </button>
-                </div>
-                
                 <div class="bg-gray-900/50 rounded-xl p-4 text-sm text-gray-400 border border-gray-700">
-                    💡 <span class="font-semibold">نصيحة:</span> ابدأ بحركة اليد للأعلى، ثم أنزلها للأسفل عند الانتهاء من كل إشارة
+                    💡 <span class="font-semibold">نصيحة:</span> ارفع يديك للإشارة، ثم أنزلهما للأسفل عند الانتهاء
                 </div>
             </div>
 
@@ -110,12 +90,12 @@
                 
                 <!-- Latest Word -->
                 <div id="latestWordCard" class="bg-gradient-to-br from-teal-600 to-cyan-600 rounded-2xl p-8 text-center shadow-2xl">
-                    <p class="text-sm font-semibold opacity-90 mb-2 tracking-wide">آخر إشارة مكتشفة</p>
+                    <p class="text-sm font-semibold opacity-90 mb-2">آخر إشارة مكتشفة</p>
                     <h2 id="latestWord" class="text-6xl font-bold drop-shadow-lg">...</h2>
                 </div>
 
                 <!-- Word History -->
-                <div class="bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 flex flex-col" style="height: 300px;">
+                <div class="bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 flex flex-col" style="height: 350px;">
                     <div class="p-4 bg-gray-700/50 flex justify-between items-center border-b border-gray-600">
                         <h3 class="font-bold text-lg flex items-center gap-2">
                             <span>📝</span> السجل
@@ -128,271 +108,226 @@
                     <div id="wordList" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
                 </div>
 
-                <!-- AI Refine Section -->
+                <!-- Final Sentence -->
                 <div class="bg-gray-800 rounded-2xl p-6 shadow-2xl border border-gray-700">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="font-bold text-lg flex items-center gap-2">
-                            <span>✨</span> تحسين الجملة بالذكاء الاصطناعي
-                        </h3>
-                        <button onclick="refineText()" 
-                                class="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 px-6 py-2.5 rounded-xl font-bold transition-all transform hover:scale-105 shadow-lg">
-                            <span>🤖</span> تحسين
-                        </button>
-                    </div>
-                    <div id="refinedOutput" class="hidden bg-gray-900 rounded-xl p-5 border border-teal-500/30">
-                        <p class="text-sm text-gray-400 mb-2">الجملة المحسّنة:</p>
-                        <p id="refinedText" class="text-2xl font-bold text-teal-400 leading-relaxed"></p>
-                    </div>
-                    <div id="refinedPlaceholder" class="text-center text-gray-500 py-8 text-sm">
-                        اضغط "تحسين" لدمج الكلمات في جملة واحدة
-                    </div>
+                    <h3 class="text-sm text-gray-400 mb-2">الجملة النهائية:</h3>
+                    <p id="finalSentence" class="text-2xl font-bold text-teal-400"></p>
                 </div>
             </div>
         </div>
     </main>
 
     <script>
-        let currentWords = [];
-        let pollInterval = null;
-        let currentMode = 'live';
+        // ==================== WEBSOCKET CONNECTION ====================
+        const socket = io();
         let cameraActive = false;
-        let skeletonVisible = true;
+        let currentWords = [];
+        let videoStream = null;
 
-        function startPolling() {
-            if (pollInterval) clearInterval(pollInterval);
-            pollInterval = setInterval(fetchWords, 400);
+        socket.on('connect', () => {
+            updateConnectionStatus(true);
+            console.log('✅ Connected to server');
+        });
+
+        socket.on('disconnect', () => {
+            updateConnectionStatus(false);
+            console.log('❌ Disconnected from server');
+        });
+
+        socket.on('frame_result', (data) => {
+            updateUI(data);
+        });
+
+        socket.on('words_update', (data) => {
+            currentWords = data.words;
+            displayWords();
+        });
+
+        function updateConnectionStatus(connected) {
+            const icon = document.getElementById('statusIcon');
+            const text = document.getElementById('statusText');
+            if (connected) {
+                icon.textContent = '🟢';
+                text.textContent = 'متصل';
+            } else {
+                icon.textContent = '🔴';
+                text.textContent = 'غير متصل';
+            }
         }
 
-        async function fetchWords() {
+        // ==================== CAMERA ====================
+        async function toggleCamera() {
+            if (cameraActive) {
+                stopCamera();
+            } else {
+                await startCamera();
+            }
+        }
+
+        async function startCamera() {
             try {
-                const res = await fetch(`/api/words?mode=${currentMode}`);
-                const data = await res.json();
+                videoStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 640, height: 480 } 
+                });
                 
-                if (JSON.stringify(data.words) !== JSON.stringify(currentWords)) {
-                    const hadWords = currentWords.length > 0;
-                    currentWords = data.words;
-                    updateUI();
-                    
-                    if (currentWords.length > 0 && currentWords.length !== (hadWords ? currentWords.length - 1 : 0)) {
-                        document.getElementById('latestWordCard').classList.add('pulse-green');
-                        setTimeout(() => {
-                            document.getElementById('latestWordCard').classList.remove('pulse-green');
-                        }, 500);
-                    }
-                }
+                const video = document.getElementById('webcam');
+                video.srcObject = videoStream;
+                
+                cameraActive = true;
+                updateCameraButton();
+                document.getElementById('statusBadge').classList.remove('hidden');
+                
+                // Start sending frames
+                sendFrames();
+                
             } catch (err) {
+                alert('لا يمكن الوصول إلى الكاميرا: ' + err.message);
                 console.error(err);
             }
         }
 
-        function updateUI() {
+        function stopCamera() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            
+            const video = document.getElementById('webcam');
+            video.srcObject = null;
+            
+            cameraActive = false;
+            updateCameraButton();
+            document.getElementById('statusBadge').classList.add('hidden');
+        }
+
+        function updateCameraButton() {
+            const btn = document.getElementById('btnCamera');
+            const icon = document.getElementById('cameraIcon');
+            const text = document.getElementById('cameraText');
+            
+            if (cameraActive) {
+                btn.classList.remove('bg-green-600', 'hover:bg-green-700');
+                btn.classList.add('bg-red-600', 'hover:bg-red-700');
+                icon.textContent = '⏹️';
+                text.textContent = 'إيقاف الكاميرا';
+            } else {
+                btn.classList.remove('bg-red-600', 'hover:bg-red-700');
+                btn.classList.add('bg-green-600', 'hover:bg-green-700');
+                icon.textContent = '📹';
+                text.textContent = 'تشغيل الكاميرا';
+            }
+        }
+
+        // ==================== FRAME SENDING ====================
+        function sendFrames() {
+            if (!cameraActive) return;
+            
+            const video = document.getElementById('webcam');
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = 640;
+            canvas.height = 480;
+            
+            function captureFrame() {
+                if (!cameraActive) return;
+                
+                // Draw video frame to canvas
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Convert to base64
+                const frameData = canvas.toDataURL('image/jpeg', 0.7);
+                
+                // Send to server
+                socket.emit('process_frame', { frame: frameData });
+                
+                // Continue capturing (reduced to ~15 FPS for performance)
+                setTimeout(captureFrame, 66);
+            }
+            
+            captureFrame();
+        }
+
+        // ==================== UI UPDATES ====================
+        function updateUI(data) {
+            const indicator = document.getElementById('stateIndicator');
+            const progressCircle = document.getElementById('progressCircle');
+            const progressBar = document.getElementById('progressBar');
+            
+            // Update state indicator
+            if (data.idle) {
+                indicator.textContent = 'IDLE';
+                indicator.className = 'absolute top-4 left-4 bg-cyan-600/80 px-4 py-2 rounded-xl text-lg font-bold shadow-lg';
+                
+                // Show progress
+                progressCircle.style.display = 'block';
+                const progress = data.idle_counter / 15;
+                const offset = 126 - (progress * 126);
+                progressBar.style.strokeDashoffset = offset;
+            } else {
+                indicator.textContent = 'SIGNING (' + data.buffer_size + ')';
+                indicator.className = 'absolute top-4 left-4 bg-green-600/80 px-4 py-2 rounded-xl text-lg font-bold shadow-lg';
+                progressCircle.style.display = 'none';
+            }
+            
+            // Handle detected word
+            if (data.detected_word) {
+                currentWords = data.all_words;
+                displayWords();
+                flashEffect(data.flash);
+            }
+        }
+
+        function displayWords() {
             const latest = document.getElementById('latestWord');
             const list = document.getElementById('wordList');
+            const sentence = document.getElementById('finalSentence');
             
             if (currentWords.length > 0) {
                 latest.textContent = currentWords[currentWords.length - 1];
                 latest.classList.add('fade-in');
                 setTimeout(() => latest.classList.remove('fade-in'), 400);
+                
+                document.getElementById('latestWordCard').classList.add('pulse-green');
+                setTimeout(() => document.getElementById('latestWordCard').classList.remove('pulse-green'), 500);
             } else {
                 latest.textContent = '...';
             }
             
             list.innerHTML = currentWords.map((word, idx) => `
-                <div class="bg-gray-700 px-5 py-3 rounded-xl flex justify-between items-center hover:bg-gray-600 transition-all transform hover:scale-[1.02] fade-in">
+                <div class="bg-gray-700 px-5 py-3 rounded-xl flex justify-between items-center hover:bg-gray-600 transition fade-in">
                     <span class="text-xl font-bold">${word}</span>
                     <span class="text-sm text-gray-400 bg-gray-800 px-3 py-1 rounded-full">#${idx + 1}</span>
                 </div>
             `).join('');
             
             list.scrollTop = list.scrollHeight;
+            sentence.textContent = currentWords.join(' ');
         }
 
-        function switchMode(mode) {
-            currentMode = mode;
-            const btnLive = document.getElementById('btn-live');
-            const btnVideo = document.getElementById('btn-video');
-            const liveControls = document.getElementById('liveControls');
-            const videoControls = document.getElementById('videoControls');
-            const badge = document.getElementById('statusBadge');
-            const statusText = document.getElementById('statusText');
+        function flashEffect(color) {
+            const flash = document.getElementById('flashEffect');
+            flash.style.display = 'block';
+            flash.style.border = color === 'green' ? '12px solid #00ff00' : '12px solid #ff0000';
+            flash.style.opacity = '0.8';
             
-            if (mode === 'live') {
-                btnLive.classList.add('bg-teal-600', 'text-white');
-                btnLive.classList.remove('text-gray-400');
-                btnVideo.classList.remove('bg-teal-600', 'text-white');
-                btnVideo.classList.add('text-gray-400');
-                liveControls.classList.remove('hidden');
-                videoControls.classList.add('hidden');
-                
-                // FIX: Update badge to show "مباشر" when switching to live
-                if (cameraActive) {
-                    badge.classList.remove('hidden', 'bg-indigo-600');
-                    badge.classList.add('bg-red-600');
-                    statusText.textContent = 'مباشر';
-                } else {
-                    badge.classList.add('hidden');
-                }
-                
-                // Stop video if running
-                stopTest();
-            } else {
-                btnVideo.classList.add('bg-teal-600', 'text-white');
-                btnVideo.classList.remove('text-gray-400');
-                btnLive.classList.remove('bg-teal-600', 'text-white');
-                btnLive.classList.add('text-gray-400');
-                videoControls.classList.remove('hidden');
-                liveControls.classList.add('hidden');
-                
-                // FIX: Hide badge when switching to video mode
-                badge.classList.add('hidden');
-                
-                // Stop camera if running
-                if (cameraActive) {
-                    toggleCamera();
-                }
-            }
-            
-            clearHistory();
-            
-            // FIX: Force video feed refresh
-            const videoFeed = document.getElementById('videoFeed');
-            videoFeed.src = videoFeed.src;
+            setTimeout(() => {
+                flash.style.opacity = '0';
+                setTimeout(() => flash.style.display = 'none', 300);
+            }, 200);
         }
 
-        async function toggleCamera() {
-            try {
-                const res = await fetch('/api/camera/toggle', {method: 'POST'});
-                const data = await res.json();
-                
-                cameraActive = data.active;
-                const badge = document.getElementById('statusBadge');
-                const statusText = document.getElementById('statusText');
-                const btnCamera = document.getElementById('btnCamera');
-                const cameraIcon = document.getElementById('cameraIcon');
-                const cameraText = document.getElementById('cameraText');
-                
-                if (cameraActive) {
-                    // Camera ON
-                    badge.classList.remove('hidden', 'bg-indigo-600');
-                    badge.classList.add('bg-red-600');
-                    statusText.textContent = 'مباشر';
-                    
-                    btnCamera.classList.remove('bg-green-600', 'hover:bg-green-700');
-                    btnCamera.classList.add('bg-red-600', 'hover:bg-red-700');
-                    cameraIcon.textContent = '⏹️';
-                    cameraText.textContent = 'إيقاف الكاميرا';
-                    
-                    // FIX: Force refresh video feed
-                    const videoFeed = document.getElementById('videoFeed');
-                    const timestamp = new Date().getTime();
-                    videoFeed.src = '/video_feed?' + timestamp;
-                } else {
-                    // Camera OFF
-                    badge.classList.add('hidden');
-                    
-                    btnCamera.classList.remove('bg-red-600', 'hover:bg-red-700');
-                    btnCamera.classList.add('bg-green-600', 'hover:bg-green-700');
-                    cameraIcon.textContent = '📹';
-                    cameraText.textContent = 'تشغيل الكاميرا';
-                    
-                    // FIX: Refresh to show placeholder
-                    const videoFeed = document.getElementById('videoFeed');
-                    const timestamp = new Date().getTime();
-                    videoFeed.src = '/video_feed?' + timestamp;
-                }
-            } catch (err) {
-                console.error(err);
-                alert('خطأ في تشغيل الكاميرا');
-            }
-        }
-
-        async function startTest(testName) {
-            try {
-                const res = await fetch('/api/video/start', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({test: testName})
-                });
-                
-                if (res.ok) {
-                    const badge = document.getElementById('statusBadge');
-                    const statusText = document.getElementById('statusText');
-                    badge.classList.remove('hidden', 'bg-red-600');
-                    badge.classList.add('bg-indigo-600');
-                    statusText.textContent = testName.toUpperCase();
-                    
-                    // FIX: Force refresh video feed
-                    const videoFeed = document.getElementById('videoFeed');
-                    const timestamp = new Date().getTime();
-                    videoFeed.src = '/video_feed?' + timestamp;
-                }
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        async function stopTest() {
-            try {
-                await fetch('/api/video/stop', {method: 'POST'});
-                const badge = document.getElementById('statusBadge');
-                badge.classList.add('hidden');
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        async function clearHistory() {
-            await fetch(`/api/clear?mode=${currentMode}`);
+        function clearHistory() {
+            socket.emit('clear_words');
             currentWords = [];
-            updateUI();
-            document.getElementById('refinedOutput').classList.add('hidden');
-            document.getElementById('refinedPlaceholder').classList.remove('hidden');
+            displayWords();
         }
 
-        async function toggleSkeleton() {
-            await fetch('/api/toggle_skeleton');
-            skeletonVisible = !skeletonVisible;
-            document.getElementById('skeletonText').textContent = skeletonVisible ? 'إخفاء الخطوط' : 'إظهار الخطوط';
-        }
-
-        async function refineText() {
-            if (currentWords.length === 0) {
-                alert('لا توجد كلمات للتحسين!');
-                return;
-            }
-
-            const outputDiv = document.getElementById('refinedOutput');
-            const placeholder = document.getElementById('refinedPlaceholder');
-            const textEl = document.getElementById('refinedText');
-            
-            placeholder.classList.add('hidden');
-            outputDiv.classList.remove('hidden');
-            textEl.innerHTML = '<span class="animate-pulse">⏳ جاري المعالجة...</span>';
-            
-            try {
-                const res = await fetch('/api/refine', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({mode: currentMode})
-                });
-                
-                const data = await res.json();
-                
-                if (data.error) {
-                    textEl.innerHTML = `<span class="text-red-400">❌ ${data.error}</span>`;
-                } else {
-                    textEl.textContent = data.refined_text;
-                }
-            } catch (err) {
-                textEl.innerHTML = '<span class="text-red-400">❌ خطأ في الاتصال</span>';
-            }
-        }
-
+        // Cleanup on page close
         window.addEventListener('beforeunload', () => {
-            if (pollInterval) clearInterval(pollInterval);
+            stopCamera();
+            socket.disconnect();
         });
-
-        startPolling();
     </script>
 </body>
 </html>
