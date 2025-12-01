@@ -1,27 +1,5 @@
-# Anaconda/Virtual Environments
-mediapipe_env/
-env/
-venv/
-.conda/
-__pycache__/
-
-# Model files (too large for GitHub)
-*.pth
-*.h5
-
-# Python
 *.pyc
-*.pyo
-*.egg-info/
-
-# IDE
-.vscode/
-.idea/
-
-# OS
+__pycache__/
+.env
+venv/
 .DS_Store
-Thumbs.db
-
-# Data
-*.mp4
-*.avi
