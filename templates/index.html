@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>مترجم لغة الإشارة العربية</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Cairo', sans-serif; }
@@ -17,6 +18,23 @@
         @keyframes pulseGreen { 
             0%, 100% { box-shadow: 0 0 0 0 rgba(0, 255, 0, 0.7); }
             50% { box-shadow: 0 0 30px 15px rgba(0, 255, 0, 0); }
+        }
+        .speaking { animation: speak 0.8s ease-in-out infinite; }
+        @keyframes speak {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .speaking-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
         }
     </style>
 </head>
@@ -36,8 +54,8 @@
                 </h1>
             </div>
             
-            <!-- Mode Toggle -->
-            <div class="bg-gray-700 p-1 rounded-xl flex gap-1">
+            <!-- Mode Toggle - DESKTOP ONLY -->
+            <div id="desktopModes" class="bg-gray-700 p-1 rounded-xl flex gap-1">
                 <button onclick="switchMode('live')" id="btn-live" 
                         class="px-6 py-2 rounded-lg font-semibold transition-all bg-teal-600 text-white">
                     📹 مباشر
@@ -47,8 +65,20 @@
                     🎬 فيديو تجريبي
                 </button>
             </div>
+
+            <!-- Device Indicator with Auto-TTS Toggle -->
+            <div class="flex items-center gap-3">
+                <label class="flex items-center gap-2 bg-gray-700 px-4 py-2 rounded-xl cursor-pointer hover:bg-gray-600 transition">
+                    <input type="checkbox" id="autoTTSToggle" checked onchange="toggleAutoTTS()" class="w-4 h-4">
+                    <span class="text-sm font-semibold">🔊 نطق تلقائي</span>
+                </label>
+                <div id="deviceIndicator" class="bg-gray-700 px-4 py-2 rounded-xl text-sm font-semibold">
+                    <span id="deviceType">💻 كمبيوتر</span>
+                </div>
+            </div>
         </div>
     </header>
+
 
     <!-- Main Content -->
     <main class="container mx-auto p-6">
@@ -69,7 +99,7 @@
                             <span id="statusText">مباشر</span>
                         </div>
                         
-                        <!-- Toggle Skeleton Button (Inside Video) -->
+                        <!-- Toggle Skeleton Button -->
                         <button onclick="toggleSkeleton()" 
                                 class="absolute top-4 left-4 bg-gray-900/80 hover:bg-teal-600 text-white px-4 py-2 rounded-xl transition-all shadow-lg font-semibold">
                             👁️ <span id="skeletonText">إخفاء الخطوط</span>
@@ -77,7 +107,7 @@
                     </div>
                 </div>
                 
-                <!-- Live Mode Controls -->
+                <!-- DESKTOP: Live Mode Controls -->
                 <div id="liveControls" class="flex gap-3">
                     <button onclick="toggleCamera()" id="btnCamera" 
                             class="flex-1 bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-xl font-bold shadow-lg transition-all transform hover:scale-105">
@@ -85,63 +115,97 @@
                     </button>
                 </div>
                 
-                <!-- Video Mode Controls -->
+                <!-- DESKTOP: Video Mode Controls -->
                 <div id="videoControls" class="hidden space-y-3">
-                    <div class="grid grid-cols-5 gap-2">
+                    <div class="grid grid-cols-3 gap-2">
                         <button onclick="startTest('test1')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl font-bold transition">Test 1</button>
                         <button onclick="startTest('test2')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl font-bold transition">Test 2</button>
                         <button onclick="startTest('test3')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl font-bold transition">Test 3</button>
-                        <button onclick="startTest('test4')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl font-bold transition">Test 4</button>
-                        <button onclick="startTest('test5')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl font-bold transition">Test 5</button>
                     </div>
                     <button onclick="stopTest()" id="btnStopTest" 
                             class="w-full bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-xl font-bold shadow-lg transition">
                         ⏹️ إيقاف الفيديو
                     </button>
                 </div>
+
+                <!-- MOBILE: Camera Control -->
+                <div id="mobileControls" class="hidden flex gap-3">
+                    <button onclick="toggleMobileCamera()" id="btnMobile" 
+                            class="flex-1 bg-purple-600 hover:bg-purple-700 text-white px-6 py-4 rounded-xl font-bold shadow-lg transition-all transform hover:scale-105">
+                        <span id="mobileIcon">📱</span> <span id="mobileText">تشغيل الكاميرا</span>
+                    </button>
+                </div>
                 
+                <!-- Status Message -->
                 <div class="bg-gray-900/50 rounded-xl p-4 text-sm text-gray-400 border border-gray-700">
-                    💡 <span class="font-semibold">نصيحة:</span> ابدأ بحركة اليد للأعلى، ثم أنزلها للأسفل عند الانتهاء من كل إشارة
+                    <span id="statusMessage">
+                        💡 <span class="font-semibold">نصيحة:</span> ابدأ بحركة اليد للأعلى، ثم أنزلها للأسفل عند الانتهاء من كل إشارة
+                    </span>
                 </div>
             </div>
+
 
             <!-- Detection Panel -->
             <div class="space-y-6">
                 
-                <!-- Latest Word -->
-                <div id="latestWordCard" class="bg-gradient-to-br from-teal-600 to-cyan-600 rounded-2xl p-8 text-center shadow-2xl">
+                <!-- Latest Word with TTS -->
+                <div id="latestWordCard" class="bg-gradient-to-br from-teal-600 to-cyan-600 rounded-2xl p-8 text-center shadow-2xl relative">
+                    <div id="speakingIndicator" class="hidden absolute top-4 right-4 flex items-center gap-2 bg-white/20 px-3 py-1 rounded-full">
+                        <span class="speaking-indicator"></span>
+                        <span class="text-xs font-semibold">يتم النطق...</span>
+                    </div>
                     <p class="text-sm font-semibold opacity-90 mb-2 tracking-wide">آخر إشارة مكتشفة</p>
-                    <h2 id="latestWord" class="text-6xl font-bold drop-shadow-lg">...</h2>
+                    <h2 id="latestWord" class="text-6xl font-bold drop-shadow-lg mb-4">...</h2>
+                    <button onclick="speakLatestWord()" id="btnSpeakWord"
+                            class="hidden bg-white/20 hover:bg-white/30 px-6 py-2 rounded-xl font-semibold transition-all transform hover:scale-105">
+                        🔊 استماع
+                    </button>
                 </div>
 
-                <!-- Word History -->
+
+                <!-- Word History with TTS -->
                 <div class="bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 flex flex-col" style="height: 300px;">
                     <div class="p-4 bg-gray-700/50 flex justify-between items-center border-b border-gray-600">
                         <h3 class="font-bold text-lg flex items-center gap-2">
                             <span>📝</span> السجل
                         </h3>
-                        <button onclick="clearHistory()" 
-                                class="text-red-400 hover:text-red-300 text-sm font-semibold px-3 py-1 rounded-lg hover:bg-red-400/10 transition">
-                            🗑️ مسح
-                        </button>
+                        <div class="flex gap-2">
+                            <button onclick="speakAllWords()" 
+                                    class="text-teal-400 hover:text-teal-300 text-sm font-semibold px-3 py-1 rounded-lg hover:bg-teal-400/10 transition">
+                                🔊 قراءة الكل
+                            </button>
+                            <button onclick="clearHistory()" 
+                                    class="text-red-400 hover:text-red-300 text-sm font-semibold px-3 py-1 rounded-lg hover:bg-red-400/10 transition">
+                                🗑️ مسح
+                            </button>
+                        </div>
                     </div>
                     <div id="wordList" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
                 </div>
 
-                <!-- AI Refine Section -->
+
+                <!-- AI Refine Section with Auto-TTS -->
                 <div class="bg-gray-800 rounded-2xl p-6 shadow-2xl border border-gray-700">
                     <div class="flex justify-between items-center mb-4">
                         <h3 class="font-bold text-lg flex items-center gap-2">
                             <span>✨</span> تحسين الجملة بالذكاء الاصطناعي
                         </h3>
-                        <button onclick="refineText()" 
+                        <button onclick="refineText()" id="btnRefine"
                                 class="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 px-6 py-2.5 rounded-xl font-bold transition-all transform hover:scale-105 shadow-lg">
                             <span>🤖</span> تحسين
                         </button>
                     </div>
-                    <div id="refinedOutput" class="hidden bg-gray-900 rounded-xl p-5 border border-teal-500/30">
+                    <div id="refinedOutput" class="hidden bg-gray-900 rounded-xl p-5 border border-teal-500/30 relative">
+                        <div id="refinedSpeakingIndicator" class="hidden absolute top-3 right-3 flex items-center gap-2 bg-teal-500/20 px-3 py-1 rounded-full">
+                            <span class="speaking-indicator"></span>
+                            <span class="text-xs font-semibold">يتم النطق...</span>
+                        </div>
                         <p class="text-sm text-gray-400 mb-2">الجملة المحسّنة:</p>
-                        <p id="refinedText" class="text-2xl font-bold text-teal-400 leading-relaxed"></p>
+                        <p id="refinedText" class="text-2xl font-bold text-teal-400 leading-relaxed mb-3"></p>
+                        <button onclick="speakRefinedText()" id="btnSpeakRefined"
+                                class="bg-teal-600 hover:bg-teal-500 px-5 py-2 rounded-lg font-semibold transition-all transform hover:scale-105">
+                            🔊 إعادة الاستماع
+                        </button>
                     </div>
                     <div id="refinedPlaceholder" class="text-center text-gray-500 py-8 text-sm">
                         اضغط "تحسين" لدمج الكلمات في جملة واحدة
@@ -151,33 +215,126 @@
         </div>
     </main>
 
+    <!-- Audio Player (Hidden) -->
+    <audio id="audioPlayer" style="display: none;"></audio>
+
     <script>
         let currentWords = [];
         let pollInterval = null;
         let currentMode = 'live';
         let cameraActive = false;
         let skeletonVisible = true;
+        let isMobileDevice = false;
+        let currentAudio = null;
+        let autoTTSEnabled = true; // Auto-TTS enabled by default
+        let lastSpokenWord = null; // Track last spoken word to avoid repeats
+
+        // Mobile camera variables
+        let mobileActive = false;
+        let mobileStream = null;
+        let mobileCanvas = document.createElement('canvas');
+        let mobileCtx = mobileCanvas.getContext('2d');
+        let mobileVideo = document.createElement('video');
+        mobileVideo.autoplay = true;
+        mobileVideo.playsInline = true;
+
+        // Socket.IO connection
+        const socket = io();
+
+        // Detect device type on load
+        window.addEventListener('DOMContentLoaded', () => {
+            isMobileDevice = /iPhone|iPad|Android/i.test(navigator.userAgent);
+            
+            if (isMobileDevice) {
+                document.getElementById('desktopModes').style.display = 'none';
+                document.getElementById('liveControls').classList.add('hidden');
+                document.getElementById('videoControls').classList.add('hidden');
+                document.getElementById('mobileControls').classList.remove('hidden');
+                document.getElementById('deviceType').textContent = '📱 هاتف';
+                document.getElementById('videoFeed').src = '';
+                currentMode = 'mobile';
+            } else {
+                document.getElementById('mobileControls').classList.add('hidden');
+                document.getElementById('deviceType').textContent = '💻 كمبيوتر';
+            }
+        });
+
+        socket.on('connect', () => {
+            console.log('✅ Connected to server');
+        });
+
+        socket.on('disconnect', () => {
+            console.log('❌ Disconnected from server');
+        });
+
+        socket.on('mobile_words', (data) => {
+            if (currentMode === 'mobile') {
+                if (JSON.stringify(data.words) !== JSON.stringify(currentWords)) {
+                    const hadWords = currentWords.length > 0;
+                    const oldLength = currentWords.length;
+                    currentWords = data.words;
+                    updateUI();
+                    
+                    // Auto-TTS for new word
+                    if (currentWords.length > oldLength && currentWords.length > 0) {
+                        const newWord = currentWords[currentWords.length - 1];
+                        document.getElementById('latestWordCard').classList.add('pulse-green');
+                        setTimeout(() => {
+                            document.getElementById('latestWordCard').classList.remove('pulse-green');
+                        }, 500);
+                        
+                        // Automatically speak new word
+                        if (autoTTSEnabled && newWord !== lastSpokenWord) {
+                            lastSpokenWord = newWord;
+                            speakWord(newWord, true);
+                        }
+                    }
+                }
+            }
+        });
+
+
+        function toggleAutoTTS() {
+            autoTTSEnabled = document.getElementById('autoTTSToggle').checked;
+            console.log('Auto-TTS:', autoTTSEnabled ? 'Enabled' : 'Disabled');
+        }
+
 
         function startPolling() {
             if (pollInterval) clearInterval(pollInterval);
             pollInterval = setInterval(fetchWords, 400);
         }
 
+
         async function fetchWords() {
+            if (isMobileDevice) {
+                socket.emit('get_mobile_words');
+                return;
+            }
+            
             try {
                 const res = await fetch(`/api/words?mode=${currentMode}`);
                 const data = await res.json();
                 
                 if (JSON.stringify(data.words) !== JSON.stringify(currentWords)) {
                     const hadWords = currentWords.length > 0;
+                    const oldLength = currentWords.length;
                     currentWords = data.words;
                     updateUI();
                     
-                    if (currentWords.length > 0 && currentWords.length !== (hadWords ? currentWords.length - 1 : 0)) {
+                    // Auto-TTS for new word
+                    if (currentWords.length > oldLength && currentWords.length > 0) {
+                        const newWord = currentWords[currentWords.length - 1];
                         document.getElementById('latestWordCard').classList.add('pulse-green');
                         setTimeout(() => {
                             document.getElementById('latestWordCard').classList.remove('pulse-green');
                         }, 500);
+                        
+                        // Automatically speak new word
+                        if (autoTTSEnabled && newWord !== lastSpokenWord) {
+                            lastSpokenWord = newWord;
+                            speakWord(newWord, true);
+                        }
                     }
                 }
             } catch (err) {
@@ -185,30 +342,188 @@
             }
         }
 
+
         function updateUI() {
             const latest = document.getElementById('latestWord');
             const list = document.getElementById('wordList');
+            const btnSpeakWord = document.getElementById('btnSpeakWord');
             
             if (currentWords.length > 0) {
                 latest.textContent = currentWords[currentWords.length - 1];
                 latest.classList.add('fade-in');
+                btnSpeakWord.classList.remove('hidden');
                 setTimeout(() => latest.classList.remove('fade-in'), 400);
             } else {
                 latest.textContent = '...';
+                btnSpeakWord.classList.add('hidden');
             }
             
             list.innerHTML = currentWords.map((word, idx) => `
                 <div class="bg-gray-700 px-5 py-3 rounded-xl flex justify-between items-center hover:bg-gray-600 transition-all transform hover:scale-[1.02] fade-in">
                     <span class="text-xl font-bold">${word}</span>
-                    <span class="text-sm text-gray-400 bg-gray-800 px-3 py-1 rounded-full">#${idx + 1}</span>
+                    <div class="flex items-center gap-2">
+                        <button onclick="speakWord('${word.replace(/'/g, "\\'")}', false)" class="text-teal-400 hover:text-teal-300 transition">
+                            🔊
+                        </button>
+                        <span class="text-sm text-gray-400 bg-gray-800 px-3 py-1 rounded-full">#${idx + 1}</span>
+                    </div>
                 </div>
             `).join('');
             
             list.scrollTop = list.scrollHeight;
         }
 
+
+        function updateStatusMessage() {
+            const statusMessage = document.getElementById('statusMessage');
+            if (currentMode === 'video' && !document.getElementById('videoControls').classList.contains('hidden')) {
+                statusMessage.innerHTML = '🎬 <span class="font-semibold">اختر فيديو تجريبي:</span> اضغط على أحد الأزرار أعلاه لتشغيل الفيديو';
+            } else if (currentMode === 'mobile') {
+                statusMessage.innerHTML = '📱 <span class="font-semibold">نصيحة:</span> ابدأ بحركة اليد للأعلى، ثم أنزلها للأسفل عند الانتهاء من كل إشارة';
+            } else {
+                statusMessage.innerHTML = '💡 <span class="font-semibold">نصيحة:</span> ابدأ بحركة اليد للأعلى، ثم أنزلها للأسفل عند الانتهاء من كل إشارة';
+            }
+        }
+
+
+        // ==================== TTS FUNCTIONS ====================
+        async function speakWord(word, isAuto = false) {
+            if (currentAudio) {
+                currentAudio.pause();
+            }
+
+            try {
+                const indicator = document.getElementById('speakingIndicator');
+                indicator.classList.remove('hidden');
+                
+                const res = await fetch('/api/tts/word', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({word: word})
+                });
+
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const audioUrl = URL.createObjectURL(blob);
+                    currentAudio = new Audio(audioUrl);
+                    
+                    currentAudio.onplay = () => {
+                        document.getElementById('latestWordCard').classList.add('speaking');
+                    };
+                    
+                    currentAudio.onended = () => {
+                        document.getElementById('latestWordCard').classList.remove('speaking');
+                        indicator.classList.add('hidden');
+                        URL.revokeObjectURL(audioUrl);
+                    };
+                    
+                    await currentAudio.play();
+                    console.log(`🔊 ${isAuto ? 'Auto-' : ''}Speaking: ${word}`);
+                } else {
+                    indicator.classList.add('hidden');
+                }
+            } catch (err) {
+                console.error('TTS error:', err);
+                document.getElementById('speakingIndicator').classList.add('hidden');
+            }
+        }
+
+
+        async function speakLatestWord() {
+            if (currentWords.length > 0) {
+                const latestWord = currentWords[currentWords.length - 1];
+                await speakWord(latestWord, false);
+            }
+        }
+
+
+        async function speakAllWords() {
+            if (currentWords.length === 0) {
+                alert('لا توجد كلمات!');
+                return;
+            }
+
+            if (currentAudio) {
+                currentAudio.pause();
+            }
+
+            try {
+                const res = await fetch('/api/tts/all', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({mode: currentMode})
+                });
+
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const audioUrl = URL.createObjectURL(blob);
+                    currentAudio = new Audio(audioUrl);
+                    
+                    currentAudio.onended = () => {
+                        URL.revokeObjectURL(audioUrl);
+                    };
+                    
+                    await currentAudio.play();
+                }
+            } catch (err) {
+                console.error('TTS error:', err);
+            }
+        }
+
+
+        async function speakRefinedText() {
+            const refinedText = document.getElementById('refinedText').textContent;
+            
+            if (!refinedText || refinedText.includes('⏳') || refinedText.includes('❌')) {
+                return;
+            }
+
+            if (currentAudio) {
+                currentAudio.pause();
+            }
+
+            try {
+                const indicator = document.getElementById('refinedSpeakingIndicator');
+                indicator.classList.remove('hidden');
+                
+                const res = await fetch('/api/tts/sentence', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({text: refinedText})
+                });
+
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const audioUrl = URL.createObjectURL(blob);
+                    currentAudio = new Audio(audioUrl);
+                    
+                    const btn = document.getElementById('btnSpeakRefined');
+                    btn.disabled = true;
+                    
+                    currentAudio.onended = () => {
+                        btn.disabled = false;
+                        indicator.classList.add('hidden');
+                        URL.revokeObjectURL(audioUrl);
+                    };
+                    
+                    await currentAudio.play();
+                    console.log('🔊 Speaking refined sentence');
+                } else {
+                    indicator.classList.add('hidden');
+                }
+            } catch (err) {
+                console.error('TTS error:', err);
+                document.getElementById('refinedSpeakingIndicator').classList.add('hidden');
+            }
+        }
+
+
         function switchMode(mode) {
+            if (isMobileDevice) return;
+            
             currentMode = mode;
+            lastSpokenWord = null; // Reset when switching modes
+            
             const btnLive = document.getElementById('btn-live');
             const btnVideo = document.getElementById('btn-video');
             const liveControls = document.getElementById('liveControls');
@@ -216,15 +531,19 @@
             const badge = document.getElementById('statusBadge');
             const statusText = document.getElementById('statusText');
             
+            btnLive.classList.remove('bg-teal-600', 'text-white');
+            btnLive.classList.add('text-gray-400');
+            btnVideo.classList.remove('bg-teal-600', 'text-white');
+            btnVideo.classList.add('text-gray-400');
+            
+            liveControls.classList.add('hidden');
+            videoControls.classList.add('hidden');
+            
             if (mode === 'live') {
                 btnLive.classList.add('bg-teal-600', 'text-white');
                 btnLive.classList.remove('text-gray-400');
-                btnVideo.classList.remove('bg-teal-600', 'text-white');
-                btnVideo.classList.add('text-gray-400');
                 liveControls.classList.remove('hidden');
-                videoControls.classList.add('hidden');
                 
-                // FIX: Update badge to show "مباشر" when switching to live
                 if (cameraActive) {
                     badge.classList.remove('hidden', 'bg-indigo-600');
                     badge.classList.add('bg-red-600');
@@ -233,38 +552,37 @@
                     badge.classList.add('hidden');
                 }
                 
-                // Stop video if running
                 stopTest();
-            } else {
+                
+            } else if (mode === 'video') {
                 btnVideo.classList.add('bg-teal-600', 'text-white');
                 btnVideo.classList.remove('text-gray-400');
-                btnLive.classList.remove('bg-teal-600', 'text-white');
-                btnLive.classList.add('text-gray-400');
                 videoControls.classList.remove('hidden');
-                liveControls.classList.add('hidden');
                 
-                // FIX: Hide badge when switching to video mode
                 badge.classList.add('hidden');
                 
-                // Stop camera if running
-                if (cameraActive) {
-                    toggleCamera();
-                }
+                if (cameraActive) toggleCamera();
             }
             
             clearHistory();
             
-            // FIX: Force video feed refresh
             const videoFeed = document.getElementById('videoFeed');
             videoFeed.src = videoFeed.src;
+            
+            updateStatusMessage();
         }
 
+
         async function toggleCamera() {
+            if (isMobileDevice) return;
+            
             try {
                 const res = await fetch('/api/camera/toggle', {method: 'POST'});
                 const data = await res.json();
                 
                 cameraActive = data.active;
+                lastSpokenWord = null; // Reset when toggling camera
+                
                 const badge = document.getElementById('statusBadge');
                 const statusText = document.getElementById('statusText');
                 const btnCamera = document.getElementById('btnCamera');
@@ -272,7 +590,6 @@
                 const cameraText = document.getElementById('cameraText');
                 
                 if (cameraActive) {
-                    // Camera ON
                     badge.classList.remove('hidden', 'bg-indigo-600');
                     badge.classList.add('bg-red-600');
                     statusText.textContent = 'مباشر';
@@ -282,12 +599,10 @@
                     cameraIcon.textContent = '⏹️';
                     cameraText.textContent = 'إيقاف الكاميرا';
                     
-                    // FIX: Force refresh video feed
                     const videoFeed = document.getElementById('videoFeed');
                     const timestamp = new Date().getTime();
                     videoFeed.src = '/video_feed?' + timestamp;
                 } else {
-                    // Camera OFF
                     badge.classList.add('hidden');
                     
                     btnCamera.classList.remove('bg-red-600', 'hover:bg-red-700');
@@ -295,7 +610,6 @@
                     cameraIcon.textContent = '📹';
                     cameraText.textContent = 'تشغيل الكاميرا';
                     
-                    // FIX: Refresh to show placeholder
                     const videoFeed = document.getElementById('videoFeed');
                     const timestamp = new Date().getTime();
                     videoFeed.src = '/video_feed?' + timestamp;
@@ -306,7 +620,12 @@
             }
         }
 
+
         async function startTest(testName) {
+            if (isMobileDevice) return;
+            
+            lastSpokenWord = null; // Reset when starting test
+            
             try {
                 const res = await fetch('/api/video/start', {
                     method: 'POST',
@@ -321,7 +640,6 @@
                     badge.classList.add('bg-indigo-600');
                     statusText.textContent = testName.toUpperCase();
                     
-                    // FIX: Force refresh video feed
                     const videoFeed = document.getElementById('videoFeed');
                     const timestamp = new Date().getTime();
                     videoFeed.src = '/video_feed?' + timestamp;
@@ -331,29 +649,46 @@
             }
         }
 
+
         async function stopTest() {
+            if (isMobileDevice) return;
+            
             try {
                 await fetch('/api/video/stop', {method: 'POST'});
                 const badge = document.getElementById('statusBadge');
                 badge.classList.add('hidden');
+                
+                const videoFeed = document.getElementById('videoFeed');
+                const timestamp = new Date().getTime();
+                videoFeed.src = '/video_feed?' + timestamp;
             } catch (err) {
                 console.error(err);
             }
         }
 
+
         async function clearHistory() {
-            await fetch(`/api/clear?mode=${currentMode}`);
+            if (isMobileDevice) {
+                socket.emit('clear_mobile_words');
+            } else {
+                await fetch(`/api/clear?mode=${currentMode}`);
+            }
             currentWords = [];
+            lastSpokenWord = null;
             updateUI();
             document.getElementById('refinedOutput').classList.add('hidden');
             document.getElementById('refinedPlaceholder').classList.remove('hidden');
         }
 
+
         async function toggleSkeleton() {
-            await fetch('/api/toggle_skeleton');
+            if (!isMobileDevice) {
+                await fetch('/api/toggle_skeleton');
+            }
             skeletonVisible = !skeletonVisible;
             document.getElementById('skeletonText').textContent = skeletonVisible ? 'إخفاء الخطوط' : 'إظهار الخطوط';
         }
+
 
         async function refineText() {
             if (currentWords.length === 0) {
@@ -364,6 +699,10 @@
             const outputDiv = document.getElementById('refinedOutput');
             const placeholder = document.getElementById('refinedPlaceholder');
             const textEl = document.getElementById('refinedText');
+            const btnRefine = document.getElementById('btnRefine');
+            
+            btnRefine.disabled = true;
+            btnRefine.innerHTML = '<span>⏳</span> جاري المعالجة...';
             
             placeholder.classList.add('hidden');
             outputDiv.classList.remove('hidden');
@@ -382,17 +721,165 @@
                     textEl.innerHTML = `<span class="text-red-400">❌ ${data.error}</span>`;
                 } else {
                     textEl.textContent = data.refined_text;
+                    
+                    // AUTOMATIC TTS after refinement
+                    if (autoTTSEnabled) {
+                        console.log('🔊 Auto-speaking refined sentence...');
+                        // Wait a moment before speaking
+                        setTimeout(() => {
+                            speakRefinedText();
+                        }, 500);
+                    }
                 }
             } catch (err) {
                 textEl.innerHTML = '<span class="text-red-400">❌ خطأ في الاتصال</span>';
+            } finally {
+                btnRefine.disabled = false;
+                btnRefine.innerHTML = '<span>🤖</span> تحسين';
             }
         }
 
+
+        async function toggleMobileCamera() {
+            if (!isMobileDevice) return;
+            
+            if (mobileActive) {
+                if (window.animationFrame) {
+                    cancelAnimationFrame(window.animationFrame);
+                    window.animationFrame = null;
+                }
+                
+                if (mobileStream) {
+                    mobileStream.getTracks().forEach(t => t.stop());
+                    mobileStream = null;
+                }
+                socket.emit('mobile_stop');
+                mobileActive = false;
+                lastSpokenWord = null;
+                
+                const badge = document.getElementById('statusBadge');
+                badge.classList.add('hidden');
+                
+                const btnMobile = document.getElementById('btnMobile');
+                const mobileIcon = document.getElementById('mobileIcon');
+                const mobileText = document.getElementById('mobileText');
+                
+                btnMobile.classList.remove('bg-red-600', 'hover:bg-red-700');
+                btnMobile.classList.add('bg-purple-600', 'hover:bg-purple-700');
+                mobileIcon.textContent = '📱';
+                mobileText.textContent = 'تشغيل الكاميرا';
+                
+                const videoContainer = document.getElementById('videoFeed').parentElement;
+                const oldFeed = document.getElementById('videoFeed');
+                
+                const imgElement = document.createElement('img');
+                imgElement.id = 'videoFeed';
+                imgElement.className = 'w-full h-full object-contain';
+                imgElement.alt = 'Video Feed';
+                imgElement.src = '';
+                
+                oldFeed.replaceWith(imgElement);
+                
+            } else {
+                try {
+                    mobileStream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            facingMode: 'user',
+                            width: { ideal: 640, max: 640 },
+                            height: { ideal: 480, max: 480 }
+                        }
+                    });
+                    
+                    mobileVideo.srcObject = mobileStream;
+                    
+                    mobileVideo.onloadedmetadata = () => {
+                        mobileCanvas.width = mobileVideo.videoWidth;
+                        mobileCanvas.height = mobileVideo.videoHeight;
+                        
+                        socket.emit('mobile_start');
+                        mobileActive = true;
+                        
+                        const badge = document.getElementById('statusBadge');
+                        const statusText = document.getElementById('statusText');
+                        badge.classList.remove('hidden', 'bg-red-600', 'bg-indigo-600');
+                        badge.classList.add('bg-purple-600');
+                        statusText.textContent = 'هاتف مباشر';
+                        
+                        const btnMobile = document.getElementById('btnMobile');
+                        const mobileIcon = document.getElementById('mobileIcon');
+                        const mobileText = document.getElementById('mobileText');
+                        
+                        btnMobile.classList.remove('bg-purple-600', 'hover:bg-purple-700');
+                        btnMobile.classList.add('bg-red-600', 'hover:bg-red-700');
+                        mobileIcon.textContent = '⏹️';
+                        mobileText.textContent = 'إيقاف الكاميرا';
+                        
+                        const videoContainer = document.getElementById('videoFeed').parentElement;
+                        const oldFeed = document.getElementById('videoFeed');
+                        
+                        const videoElement = document.createElement('video');
+                        videoElement.id = 'videoFeed';
+                        videoElement.className = 'w-full h-full object-contain';
+                        videoElement.autoplay = true;
+                        videoElement.playsInline = true;
+                        videoElement.muted = true;
+                        videoElement.srcObject = mobileStream;
+                        videoElement.style.transform = 'scaleX(-1)';
+                        
+                        oldFeed.replaceWith(videoElement);
+                        
+                        let lastSendTime = 0;
+                        const sendInterval = 200;
+                        let frameCount = 0;
+                        
+                        function sendFrameToServer() {
+                            if (!mobileActive) return;
+                            
+                            const now = Date.now();
+                            if (now - lastSendTime >= sendInterval) {
+                                lastSendTime = now;
+                                frameCount++;
+                                
+                                try {
+                                    const tempCanvas = document.createElement('canvas');
+                                    tempCanvas.width = 240;
+                                    tempCanvas.height = 180;
+                                    const tempCtx = tempCanvas.getContext('2d');
+                                    tempCtx.drawImage(mobileVideo, 0, 0, 240, 180);
+                                    
+                                    const imageData = tempCanvas.toDataURL('image/jpeg', 0.3);
+                                    socket.emit('mobile_frame', { image: imageData });
+                                    
+                                    if (frameCount % 10 === 0) {
+                                        console.log(`📱 Sent ${frameCount} frames`);
+                                    }
+                                } catch (err) {
+                                    console.error('Frame send error:', err);
+                                }
+                            }
+                            
+                            window.animationFrame = requestAnimationFrame(sendFrameToServer);
+                        }
+                        
+                        sendFrameToServer();
+                    };
+                } catch (err) {
+                    console.error('Mobile camera error:', err);
+                    alert('خطأ في تشغيل كاميرا الهاتف: ' + err.message);
+                }
+            }
+        }
+
+
         window.addEventListener('beforeunload', () => {
             if (pollInterval) clearInterval(pollInterval);
+            if (mobileActive) toggleMobileCamera();
+            if (currentAudio) currentAudio.pause();
         });
 
+
         startPolling();
+        updateStatusMessage();
     </script>
 </body>
 </html>

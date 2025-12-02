@@ -9,8 +9,10 @@ import pandas as pd
 import torch
 import os
 
+
 # Suppress logs
 os.environ['GLOG_minloglevel'] = '3'
+
 
 # ==================== PREPROCESSING ====================
 def interpolate_seq(arr, target_len):
@@ -23,6 +25,7 @@ def interpolate_seq(arr, target_len):
     tgt_idx = np.linspace(0, T-1, num=target_len)
     return np.stack([np.interp(tgt_idx, orig_idx, arr[:, d]) for d in range(D)], axis=1)
 
+
 def normalize_seq(arr):
     T, D = arr.shape
     C = 3 if D % 3 == 0 else 2
@@ -33,6 +36,7 @@ def normalize_seq(arr):
     scale = np.maximum(torso, 1e-6)
     pts[..., :2] /= scale[:, None, None]
     return pts.reshape(T, D)
+
 
 def preprocess_for_inference(pose_seq, lh_seq, rh_seq, f_avg=80):
     """Preprocess exactly like training: interpolate + normalize + concatenate."""
@@ -51,6 +55,7 @@ def preprocess_for_inference(pose_seq, lh_seq, rh_seq, f_avg=80):
     combined = np.concatenate([pose_n, lh_n, rh_n], axis=1)
     return np.expand_dims(combined, axis=0)
 
+
 # ==================== KEYPOINT EXTRACTION ====================
 def extract_keypoints(results):
     """Extract pose + lh + rh (225 features)."""
@@ -61,6 +66,7 @@ def extract_keypoints(results):
     rh = np.array([[lm.x, lm.y, lm.z] for lm in results.right_hand_landmarks.landmark]).flatten() \
         if results.right_hand_landmarks else np.zeros(63)
     return np.concatenate([pose, lh, rh])
+
 
 def draw_styled_landmarks(image, results):
     """Draw pose/hand landmarks with your custom colors."""
@@ -86,22 +92,91 @@ def draw_styled_landmarks(image, results):
             mp_drawing.DrawingSpec(color=(245,66,230), thickness=2, circle_radius=2)
         )
 
-def is_idle(results, idle_threshold_y=0.9):
-    """Check if hands are down (idle position)."""
-    if not results.left_hand_landmarks and not results.right_hand_landmarks:
+
+def is_idle(results, debug=False):
+    """
+    FIXED: Improved idle detection - only idle when BOTH hands are down/invisible
+    
+    Logic:
+    - One hand up = SIGNING (active)
+    - Both hands up = SIGNING (active)
+    - Both hands down = IDLE
+    - No hands detected = IDLE
+    
+    Args:
+        results: MediaPipe Holistic results
+        debug: Print debug info (optional)
+    
+    Returns:
+        bool: True if person is idle (both hands down), False if actively signing
+    """
+    left_hand = results.left_hand_landmarks
+    right_hand = results.right_hand_landmarks
+    pose = results.pose_landmarks
+    
+    # No pose detected = idle
+    if not pose:
         return True
     
-    if results.left_hand_landmarks:
-        lh_avg_y = np.mean([lm.y for lm in results.left_hand_landmarks.landmark])
-        if lh_avg_y > idle_threshold_y:
-            return True
-    
-    if results.right_hand_landmarks:
-        rh_avg_y = np.mean([lm.y for lm in results.right_hand_landmarks.landmark])
-        if rh_avg_y > idle_threshold_y:
-            return True
-    
-    return False
+    try:
+        # Get shoulder positions (landmarks 11=left shoulder, 12=right shoulder)
+        left_shoulder = pose.landmark[11]
+        right_shoulder = pose.landmark[12]
+        shoulder_line = (left_shoulder.y + right_shoulder.y) / 2
+        
+        # Threshold: hands below this line are considered "down"
+        # Adding 0.15 tolerance (~15% of frame height below shoulders)
+        idle_threshold = shoulder_line + 0.15
+        
+        # ===== CHECK LEFT HAND =====
+        left_is_down = True
+        left_pos = "not detected"
+        
+        if left_hand and len(left_hand.landmark) > 0:
+            # Check wrist (landmark 0) and middle finger base (landmark 9) for better accuracy
+            left_wrist_y = left_hand.landmark[0].y
+            left_middle_y = left_hand.landmark[9].y
+            left_avg_y = (left_wrist_y + left_middle_y) / 2
+            
+            # Hand is UP (active signing) if above threshold
+            if left_avg_y < idle_threshold:
+                left_is_down = False
+                left_pos = f"UP ({left_avg_y:.2f})"
+            else:
+                left_pos = f"DOWN ({left_avg_y:.2f})"
+        
+        # ===== CHECK RIGHT HAND =====
+        right_is_down = True
+        right_pos = "not detected"
+        
+        if right_hand and len(right_hand.landmark) > 0:
+            right_wrist_y = right_hand.landmark[0].y
+            right_middle_y = right_hand.landmark[9].y
+            right_avg_y = (right_wrist_y + right_middle_y) / 2
+            
+            if right_avg_y < idle_threshold:
+                right_is_down = False
+                right_pos = f"UP ({right_avg_y:.2f})"
+            else:
+                right_pos = f"DOWN ({right_avg_y:.2f})"
+        
+        # ===== FINAL DECISION =====
+        # IDLE only if BOTH hands are down or not detected
+        is_person_idle = left_is_down and right_is_down
+        
+        # Optional debug output
+        if debug:
+            status = "🟡 IDLE" if is_person_idle else "🟢 SIGNING"
+            print(f"{status} | L:{left_pos} | R:{right_pos} | Threshold:{idle_threshold:.2f}")
+        
+        return is_person_idle
+        
+    except Exception as e:
+        # On error, consider idle (safe fallback)
+        if debug:
+            print(f"⚠️ Idle detection error: {e}")
+        return True
+
 
 # ==================== MODEL ====================
 class BiLSTMModel(torch.nn.Module):
@@ -116,6 +191,7 @@ class BiLSTMModel(torch.nn.Module):
         self.relu = torch.nn.ReLU()
         self.fc2 = torch.nn.Linear(32, num_classes)
 
+
     def forward(self, x):
         out, _ = self.bilstm(x)
         out = out[:, -1, :]
@@ -124,6 +200,7 @@ class BiLSTMModel(torch.nn.Module):
         out = self.relu(out)
         out = self.fc2(out)
         return out
+
 
 # ==================== MODEL LOADER ====================
 class SignLanguageModel:
