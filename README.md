@@ -37,8 +37,8 @@ This project bridges the communication gap by translating sign language directly
 
 ### 1\. Clone the Repository
 
-git clone [https://github.com/yourusername/your-repo-name.git](https://github.com/yourusername/your-repo-name.git)
-cd your-repo-name
+git clone [https://github.com/MoBa02/ASLTranslator.git](https://github.com/MoBa02/ASLTranslator.git)
+cd ASLTranslator
 
 ### 2\. Create a Virtual Environment (Recommended)
 
