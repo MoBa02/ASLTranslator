@@ -1,9 +1,7 @@
-"""
-ASL Translator - Complete Version with All Fixes + Mobile Camera
-"""
 import os
 os.environ['GLOG_minloglevel'] = '3'
-
+from dotenv import load_dotenv
+load_dotenv()
 
 from flask import Flask, Response, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -17,7 +15,7 @@ import threading
 
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-change-this'
+app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-fallback-key')
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 
@@ -519,9 +517,9 @@ def refine_text():
         if not words_list:
             return jsonify({'error': 'لا توجد كلمات'}), 400
         
-        api_key = os.getenv('GROQ_API_KEY', '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')
-        if api_key == 'YOUR_GROQ_API_KEY_HERE':
-            return jsonify({'error': 'Set GROQ_API_KEY in .env'}), 400
+        api_key = os.getenv('GROQ_API_KEY')
+        if not api_key:
+            return jsonify({'error': 'GROQ_API_KEY not set'}), 400
         
         client = Groq(api_key=api_key)
         words = " ".join(words_list)

@@ -5,15 +5,12 @@ venv/
 .conda/
 __pycache__/
 
-# Model files (too large for GitHub)
-*.pth
-*.h5
 
 # Python
 *.pyc
 *.pyo
 *.egg-info/
-
+*.env
 # IDE
 .vscode/
 .idea/
