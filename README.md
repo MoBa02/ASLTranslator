@@ -1,6 +1,6 @@
 # Real‑Time Arabic Sign Language Translation
 
-An intelligent, deep learning–based Flask application that translates continuous **Saudi Sign Language (SSL)** from video input into grammatically correct spoken Arabic in real-time.
+An intelligent, deep learning–based Flask application that translates continuous **Arabic Sign Language (ASL)** from video input into grammatically correct spoken Arabic in real-time.
 
 ##  Overview
 
@@ -8,7 +8,7 @@ This project bridges the communication gap by translating sign language directly
 
 ### Key Features
 * **Real-time Translation:** Live inference directly from a webcam feed.
-* **Sentence-Level Recognition:** Trained on the **ArabSign dataset**, supporting 50 distinct SSL sentences.
+* **Sentence-Level Recognition:** Trained on the **ArabSign dataset**, supporting 50 distinct ASL sentences.
 * **Advanced Tracking:** Uses MediaPipe Holistic to track body pose and hand movements simultaneously.
 * **Deep Learning:** Custom BiLSTM classifier built with PyTorch.
 * **LLM Refinement:** Integration with Groq LLM API to convert raw predictions into smooth, grammatical Arabic text.
@@ -21,17 +21,6 @@ This project bridges the communication gap by translating sign language directly
 * **Machine Learning:** PyTorch, NumPy, Pandas
 * **APIs & Utilities:** Groq LLM API, gTTS (Google Text-to-Speech)
 
-## 📂 Project Structure
-
-├── app.py              # Main Flask application, routes, and Socket.IO events
-├── inference.py        # Data preprocessing, BiLSTM model definition, and prediction logic
-├── create_test_videos.py # Utility script for testing
-├── ArabSignModel.pth   # Trained model weights
-├── 01_test.csv         # Label mappings for the dataset
-├── templates/
-│   └── index.html      # Frontend Web UI
-├── .env                # Environment variables (API keys)
-└── .gitignore
 
 ## ⚙️ Setup & Installation
 
@@ -52,7 +41,7 @@ source venv/bin/activate
 
 ### 3\. Install Dependencies
 
-pip install flask flask-socketio opencv-python mediapipe numpy pandas torch gtts groq python-dotenv
+pip install requirements.txt
 
 ### 4\. Configure Environment Variables
 
@@ -88,21 +77,3 @@ This project utilizes the **ArabSign** dataset for training and evaluation. We g
 If you use this project or the underlying model, please cite the original ArabSign paper:
 
 > **ArabSign: A Multi-modality Dataset and Benchmark for Continuous Arabic Sign Language Recognition** > *Hamzah Luqman* > *2023 IEEE 17th International Conference on Automatic Face and Gesture Recognition (FG)*
-
-**BibTeX Citation:**
-@INPROCEEDINGS{luqmanArabsign2023,
-  author={Luqman, Hamzah},
-  title={ArabSign: A Multi-modality Dataset and Benchmark for Continuous Arabic Sign Language Recognition},
-  booktitle={2023 IEEE 17th International Conference on Automatic Face and Gesture Recognition (FG)},
-  year={2023},
-  pages={1-8},
-  doi={10.1109/FG57933.2023.10042720}
-}
-## 🤝 Contributing
-
-Contributions are welcome\! Please feel free to submit a Pull Request.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
-
